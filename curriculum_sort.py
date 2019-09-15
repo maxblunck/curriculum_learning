@@ -1,35 +1,38 @@
 import argparse
 import os
+import random
 
 
 def main():
     args = parse_args()
     dataset = load_dataset(args.source_data, args.target_data)
     vocabulary = load_vocabulary(args.vocabulary)
-
-    if args.threshold != None:
-        bins = assign_to_bins(dataset, vocabulary,
-                              args.num_bins, args.threshold, args.side)
-    # else:
-    # 	bins = auto_assign_to_bins(dataset, vocabulary, args.num_bins, args.s)
+    bins = assign_to_bins(dataset, vocabulary, args.threshold, args.side, args.averaged)
 
     write_to_files(bins, args.out_dir)
 
-    #--Stats--
+    # --Stats--
+    bins_keys = sorted(bins.keys(), reverse=True)
+    print("\nNumber of curriculum levels created: {}".format(len(bins_keys)))
+    print("Thresholds (min/average word frequencies): {}".format(bins_keys))
+    print("Data points per level: {}".format([len(bins[b]) for b in bins]))
+
+    for i in range(len(bins_keys)):
+        current_bin = bins[bins_keys[i]]
+        random_idx = random.randint(0, len(current_bin))
+        sample_sent = " ".join(current_bin[random_idx][1])
+        print("\nExample Level {}:\n{}\n".format(i, sample_sent))
    
 
 def parse_args():
-    parser = argparse.ArgumentParser(
-        description='Create a Curriculum for parallel data')
+    parser = argparse.ArgumentParser(description='Create a Curriculum for a parallel data set')
     parser.add_argument("source_data", help="source data")
     parser.add_argument("target_data", help="target data")
     parser.add_argument("vocabulary", help="vocabulary")
     parser.add_argument("out_dir", help="directory for output")
-    parser.add_argument("num_bins", type=int,
-                        help="number of curriculum levels/stages")
-    parser.add_argument("-threshold", type=int, action="append", help="the thresholds")
-    parser.add_argument("-side", default="target",
-                        help="side of corpus: source/target")
+    parser.add_argument("-threshold", type=int, action="append", help="the threshold for each curriculum level")
+    parser.add_argument("-side", default="target", help="side of corpus: source/target")
+    parser.add_argument("-averaged", action='store_true', help="base ordering on average word frequencies")
     return parser.parse_args()
 
 
@@ -76,7 +79,7 @@ def load_vocabulary(path):
     return vocab_dict
 
 
-def assign_to_bins(dataset, vocabulary, num_bins, thresholds, side):
+def assign_to_bins(dataset, vocabulary, thresholds, side, averaged):
     """Assign data to bins of different difficulty
 
     A sentence qualifies for a specific bin, if it's rank  
@@ -89,15 +92,14 @@ def assign_to_bins(dataset, vocabulary, num_bins, thresholds, side):
     Arguments:
             dataset {list} -- list of tuples of tokenized sent-pairs
             vocabulary {dict} -- dict with word:freq
-            num_bins {int} -- number of desired bins
             thresholds {list} -- the values needed to qualify a sent for an according bin
             side {str} -- "source" or "target": side of corpus to base sorting on  
+            averaged{bool} -- whether to use averaged word frequencies
 
     Returns:
             dict -- key: bin-threshold, val: list containing all qualified sent-pairs
     """
     bins = {t: [] for t in thresholds}
-    bins[0] = []
 
     if side == "source":
         idx = 0
@@ -105,7 +107,7 @@ def assign_to_bins(dataset, vocabulary, num_bins, thresholds, side):
         idx = 1
 
     for sent_pair in dataset:
-        sent_rank = rank_sentence(sent_pair[idx], vocabulary)
+        sent_rank = rank_sentence(sent_pair[idx], vocabulary, averaged)
 
         for threshold in sorted(bins.keys(), reverse=True):
             if sent_rank >= threshold:
@@ -114,34 +116,34 @@ def assign_to_bins(dataset, vocabulary, num_bins, thresholds, side):
     return bins
 
 
-# def auto_assign_to_bins():
-
-
-def rank_sentence(sentence, vocabulary):
+def rank_sentence(sentence, vocabulary, averaged):
     """Determine rank of a sentence
 
-    A rank is equal to the lowest occuring word
-    frequency in the sentence
+    A rank is equal to either:
+    - the lowest occuring word frequency in the sentence (averaged==False)
+    - the average frequency of the words in the sentence (averaged==True)
 
     Arguments:
             sentence {str} -- the sentence to rank
             vocabulary {dict} -- word:freq
+            average {bool} -- whether to use averaged word frequencies
 
     Returns:
-            number -- the rank (aka. lowest frequency)
+            number -- the rank of a sentence
     """
-    lowest_frequency = max(vocabulary.values())
+    frequencies = []
 
     for word in sentence:
         try:
-            word_freq = vocabulary[word]
+            frequencies.append(vocabulary[word])
         except KeyError:
-            return 0
+            frequencies.append(0)
 
-        if word_freq < lowest_frequency:
-            lowest_frequency = word_freq
-
-    return lowest_frequency
+    if averaged:
+        summed_freqs = sum(frequencies)
+        return int(summed_freqs/len(sentence))
+    else:
+        return min(frequencies)
 
 
 def write_to_files(bins, out_dir):
@@ -155,6 +157,7 @@ def write_to_files(bins, out_dir):
     """
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
+
     print("Writing files to: {} ...".format(out_dir))
 
     for key in bins.keys():
