@@ -10,34 +10,30 @@ def main():
     bins = assign_to_bins(dataset, vocabulary, args.threshold, args.side, args.averaged)
 
     write_to_files(bins, args.out_dir)
-
-    # --Stats--
-    bins_keys = sorted(bins.keys(), reverse=True)
-    print("\nNumber of curriculum levels created: {}".format(len(bins_keys)))
-    print("Thresholds (min/average word frequencies): {}".format(bins_keys))
-    print("Data points per level: {}".format([len(bins[b]) for b in bins]))
-
-    for i in range(len(bins_keys)):
-        current_bin = bins[bins_keys[i]]
-        random_idx = random.randint(0, len(current_bin))
-        sample_sent = " ".join(current_bin[random_idx][1])
-        print("\nExample Level {}:\n{}\n".format(i, sample_sent))
+    print_stats(bins)
    
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Create a Curriculum for a parallel data set')
-    parser.add_argument("source_data", help="source data")
-    parser.add_argument("target_data", help="target data")
-    parser.add_argument("vocabulary", help="vocabulary")
-    parser.add_argument("out_dir", help="directory for output")
-    parser.add_argument("-threshold", type=int, action="append", help="the threshold for each curriculum level")
-    parser.add_argument("-side", default="target", help="side of corpus: source/target")
-    parser.add_argument("-averaged", action='store_true', help="base ordering on average word frequencies")
-    return parser.parse_args()
+    parser = argparse.ArgumentParser(description='Create a curriculum for a parallel data set')
+    parser.add_argument("source_data", help="Path to data set: source language")
+    parser.add_argument("target_data", help="Path to data set: target language")
+    parser.add_argument("vocabulary", help="Path to vocabulary (needs to inculde word frequencies)")
+    parser.add_argument("out_dir", help="Directory for output files")
+    parser.add_argument("-threshold", type=int, action="append", 
+        help="The threshold (min/average word freq.) for each curriculum level (each bin)")
+    parser.add_argument("-side", default="target", help="Side of corpus to base sorting on: source/target")
+    parser.add_argument("-averaged", action='store_true', help="Base ordering on average word frequencies")
+    args = parser.parse_args()
+
+    # make sure at least one threshold is given
+    if args.threshold == None:
+        raise ValueError("No thresholds given. Provide at least one threshold for sorting")
+    else:
+        return args
 
 
 def load_dataset(source_path, target_path):
-    """Read parallel data from file
+    """Read parallel data from file (includes tokenization)
 
     Arguments:
             source_path {str} -- path to source language text file
@@ -46,11 +42,11 @@ def load_dataset(source_path, target_path):
     Returns:
             list -- list containing tuples of sentence pairs (tokenized)
     """
-    source_file = open(source_path)
-    target_file = open(target_path)
+    with open(source_path) as source_file:
+        lines_source = [line.split() for line in source_file.readlines()]
 
-    lines_source = [line.split() for line in source_file.readlines()]
-    lines_target = [line.split() for line in target_file.readlines()]
+    with open(target_path) as target_file:
+        lines_target = [line.split() for line in target_file.readlines()]
 
     return list(zip(lines_source, lines_target))
 
@@ -68,7 +64,7 @@ def load_vocabulary(path):
             dict -- key: word, value: frequency
     """
     vocab_dict = dict()
-    with open(path, encoding="utf-8") as vocab_file:
+    with open(path) as vocab_file:
         lines = vocab_file.readlines()[1:]  # skip column headers
 
         for line in lines:
@@ -85,9 +81,9 @@ def assign_to_bins(dataset, vocabulary, thresholds, side, averaged):
     A sentence qualifies for a specific bin, if it's rank  
     exceeds the according threshold
 
-    example:
-    bin[100] contains all sentences with rank > 100,
-    bin[10] contains all sents with 100 > rank > 10
+    Example:
+    bins[100] contains all sentences with rank > 100,
+    bins[10] contains all sentences with 100 > rank > 10
 
     Arguments:
             dataset {list} -- list of tuples of tokenized sent-pairs
@@ -113,6 +109,14 @@ def assign_to_bins(dataset, vocabulary, thresholds, side, averaged):
             if sent_rank >= threshold:
                 bins[threshold].append(sent_pair)
                 break
+
+    # remove empty bins
+    keys = list(bins.keys())
+    for key in keys:
+        if bins[key] == []:
+            print("Bin with threshold {} is empty.".format(key))
+            del bins[key]
+
     return bins
 
 
@@ -158,8 +162,6 @@ def write_to_files(bins, out_dir):
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
-    print("Writing files to: {} ...".format(out_dir))
-
     for key in bins.keys():
         outfile_source = open("{}/src_{}.txt".format(out_dir, key), "w")
         outfile_target = open("{}/trg_{}.txt".format(out_dir, key), "w")
@@ -171,7 +173,24 @@ def write_to_files(bins, out_dir):
             outfile_target.write(" ".join(sent[1]))
             outfile_target.write("\n")
 
-    print("... Done!")
+        outfile_source.close()
+        outfile_target.close()
+
+    print("\nFiles written to: {}".format(out_dir))
+
+
+def print_stats(bins):
+    """Prints several stats and sample sentences for each bin"""
+    bins_keys = sorted(bins.keys(), reverse=True)
+    print("\nNumber of curriculum levels (bins) created: {}".format(len(bins_keys)))
+    print("Thresholds (min/average word frequencies): {}".format(bins_keys))
+    print("Data points per bin: {}\n".format([len(bins[b]) for b in bins]))
+
+    for key in bins_keys:
+        current_bin = bins[key]
+        random_idx = random.randint(0, len(current_bin))
+        sample_sent = " ".join(current_bin[random_idx][1])
+        print("Example bin (threshold {}):\n{}\n".format(key, sample_sent))
 
 
 if __name__ == '__main__':

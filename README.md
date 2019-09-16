@@ -12,6 +12,6 @@ Run ```python curriculum_sort.py -h``` for options
 ## Example
 Running the following will create three separate files - one for each level of the curriculum:
 
-    $ python curriculum_sort.py data/test_data.fr data/test_data.en data/vocab.en ./output 3 -threshold 5000 -threshold 100 -threshold 10
+    $ python3 curriculum_sort.py data/test_data.fr data/test_data.en data/vocab.en ./output -threshold 10000 -threshold 100 -threshold 0
     
 The thresholds correspond to the three bins and deterimine what the minimum frequency of a word in a sentence needs to be, to qualify the entire sentence pair for a bin.
